@@ -1,0 +1,20 @@
+name: Post next week dates to Discord
+
+on:
+  schedule:
+    # Každý den v 5:00 UTC — skript sám pošle zprávu jen v pondělí
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run poster
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: node post-week.js
