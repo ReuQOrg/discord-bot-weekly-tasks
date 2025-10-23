@@ -1,14 +1,13 @@
 // post-week.js
-// Pošle do Discordu dny a datumy pro NÁSLEDUJÍCÍ týden (Po-Ne) v cz formátu.
-// Spouštěj kdykoliv – skript sám počká na pondělí (jinak skončí bez postu).
+// Ve ČTVRTEK v 18:40 (Europe/Prague) pošle do Discordu dny a datumy pro NÁSLEDUJÍCÍ týden (Po–Ne).
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 if (!WEBHOOK_URL) {
-  console.error("Chybí proměnná prostředí WEBHOOK_URL.");
+  console.error("Chybí proměnná prostředí WEBHOOK_URL (GitHub Secret).");
   process.exit(1);
 }
 
-// vrátí "datum v Praze" na půlnoc jako UTC Date (usnadní počítání dnů)
+// "Půlnoc v Praze" jako UTC Date – usnadní počítání dnů
 function pragueMidnightUTC(base = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Prague',
@@ -20,30 +19,48 @@ function pragueMidnightUTC(base = new Date()) {
   return new Date(Date.UTC(y, m - 1, d));
 }
 
-// zjištění dne v týdnu pro Prahu (Po=1, ... Ne=7)
+// Den v týdnu v Praze (Po=1 … Ne=7)
 function pragueWeekday1to7(date = new Date()) {
   const prg = pragueMidnightUTC(date);
-  const jsDay = prg.getUTCDay(); // 0=Ne ... 6=So
-  return jsDay === 0 ? 7 : jsDay; // 1=Po ... 7=Ne
+  const jsDay = prg.getUTCDay(); // 0=Ne..6=So
+  return jsDay === 0 ? 7 : jsDay; // Po=1..Ne=7
 }
 
-// pokud dnes není pondělí (v Praze), nespouštěj post (akce běží denně)
-if (pragueWeekday1to7(new Date()) !== 1) {
-  console.log("Dnes není pondělí v Europe/Prague – žádná zpráva se neposílá.");
+// Aktuální hodina/minuta v Praze
+function pragueHourMinute(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Prague',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+  const hh = +parts.find(p => p.type === 'hour').value;
+  const mm = +parts.find(p => p.type === 'minute').value;
+  return [hh, mm];
+}
+
+// Podmínka: Čtvrtek 18:40 v Praze
+const weekday = pragueWeekday1to7(new Date()); // Po=1..Ne=7
+const [hh, mm] = pragueHourMinute(new Date());
+const isThursday = (weekday === 4);
+const isExactTime = (hh === 18 && mm === 40);
+
+if (!isThursday || !isExactTime) {
+  console.log("Není čtvrtek 18:40 v Europe/Prague – nic se neposílá.");
   process.exit(0);
 }
 
-// najdi pondělí NÁSLEDUJÍCÍHO týdne (ne aktuální)
+// Najdi pondělí NÁSLEDUJÍCÍHO týdne
 const todayPrg = pragueMidnightUTC(new Date());
 // pondělí aktuálního týdne
-const deltaToMonThis = (pragueWeekday1to7(todayPrg) - 1); // 0..6
+const deltaToMonThis = (pragueWeekday1to7(todayPrg) - 1);
 const monThisWeek = new Date(todayPrg);
 monThisWeek.setUTCDate(monThisWeek.getUTCDate() - deltaToMonThis);
 // pondělí dalšího týdne
 const monNextWeek = new Date(monThisWeek);
 monNextWeek.setUTCDate(monNextWeek.getUTCDate() + 7);
 
-// formattery
+// Formattery (CZ, Praha)
 const fmtDayName = new Intl.DateTimeFormat('cs-CZ', { timeZone: 'Europe/Prague', weekday: 'long' });
 const fmtDayNum  = new Intl.DateTimeFormat('cs-CZ', { timeZone: 'Europe/Prague', day: 'numeric' });
 const fmtMonth   = new Intl.DateTimeFormat('cs-CZ', { timeZone: 'Europe/Prague', month: 'numeric' });
@@ -54,15 +71,15 @@ const lines = [];
 for (let i = 0; i < 7; i++) {
   const d = new Date(monNextWeek);
   d.setUTCDate(d.getUTCDate() + i);
-  const name = cap(fmtDayName.format(d));
-  const day = fmtDayNum.format(d);
-  const month = fmtMonth.format(d);
-  lines.push(`${name} ${day}.${month}.`);
+  const name = cap(fmtDayName.format(d));   // „Pondělí“
+  const day = fmtDayNum.format(d);          // „10“
+  const month = fmtMonth.format(d);         // „8“
+  lines.push(`${name} ${day}.${month}.`);   // „Pondělí 10.8.“
 }
 
 const payload = { content: lines.join('\n') };
 
-// pošli na Discord webhook
+// Odeslání na Discord webhook (Node 20 má fetch globálně)
 fetch(WEBHOOK_URL, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
