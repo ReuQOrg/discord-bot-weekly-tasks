@@ -2,11 +2,10 @@ name: Post next week dates to Discord
 
 on:
   schedule:
-    # 18:40 Praha v létě (CEST = UTC+2)
-    - cron: "40 16 * * 4"
-    # 18:40 Praha v zimě (CET = UTC+1)
-    - cron: "40 17 * * 4"
-  workflow_dispatch:  # ruční test
+    - cron: "40 16 * * 4"  # léto (CEST=UTC+2)
+    - cron: "40 17 * * 4"  # zima (CET=UTC+1)
+  workflow_dispatch:
+
 
 jobs:
   post:
