@@ -67,3 +67,32 @@ const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 const lines = [];
 for (let i = 0; i < 7; i++) {
   const d = new Date(monNextWeek);
+  d.setUTCDate(d.getUTCDate() + i);
+  lines.push(`${cap(fmtDayName.format(d))} ${fmtDayNum.format(d)}.${fmtMonth.format(d)}.`);
+}
+
+const message = lines.join('\n');
+console.log('Preview:\n' + message);
+
+// ---------- odeslání ----------
+const isSlackWebhook = WEBHOOK_URL.includes('/slack');
+const payload = isSlackWebhook ? { text: message } : { content: message };
+
+fetch(WEBHOOK_URL, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload)
+})
+.then(async r => {
+  const body = await r.text().catch(()=> '');
+  console.log('Discord response:', r.status, body || '(no body)');
+  if (!r.ok) {
+    console.error('Chyba při odesílání na Discord.');
+    process.exit(1);
+  }
+  console.log('Hotovo – zpráva odeslána.');
+})
+.catch(e => {
+  console.error('Fetch chyba:', e);
+  process.exit(1);
+});
