@@ -1,5 +1,5 @@
 // Pošle datumy ve čtvrtek kolem 18:40 (Europe/Prague) s tolerancí ±20 min.
-// Odesílá NÁSLEDUJÍCÍ týden (Po–Ne).
+// Odesílá NÁSLEDUJÍCÍ týden (Po–Ne) – každá věta jako samostatná zpráva (pro reakce).
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const DEBUG = process.env.DEBUG === '1';
@@ -26,7 +26,6 @@ function weekdayPrg1to7(d=new Date()){
 }
 
 function minutesFromTargetNow(targetHour, targetMin){
-  // rozdíl (aktuální Praha) – (dnešní 18:40 Praha) v minutách
   const now = new Date();
   const pNow = prgParts(now, { hour:'2-digit', minute:'2-digit', hour12:false });
   const hh = +pNow.hour, mm = +pNow.minute;
@@ -64,35 +63,65 @@ const fmtDayNum  = new Intl.DateTimeFormat('cs-CZ', { timeZone: 'Europe/Prague',
 const fmtMonth   = new Intl.DateTimeFormat('cs-CZ', { timeZone: 'Europe/Prague', month: 'numeric' });
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
-const lines = [];
+const dayLines = [];
 for (let i = 0; i < 7; i++) {
   const d = new Date(monNextWeek);
   d.setUTCDate(d.getUTCDate() + i);
-  lines.push(`${cap(fmtDayName.format(d))} ${fmtDayNum.format(d)}.${fmtMonth.format(d)}.`);
+  dayLines.push(`${cap(fmtDayName.format(d))} ${fmtDayNum.format(d)}.${fmtMonth.format(d)}.`);
 }
 
-const message = lines.join('\n');
-console.log('Preview:\n' + message);
-
-// ---------- odeslání ----------
 const isSlackWebhook = WEBHOOK_URL.includes('/slack');
-const payload = isSlackWebhook ? { text: message } : { content: message };
 
-fetch(WEBHOOK_URL, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(payload)
-})
-.then(async r => {
-  const body = await r.text().catch(()=> '');
-  console.log('Discord response:', r.status, body || '(no body)');
-  if (!r.ok) {
-    console.error('Chyba při odesílání na Discord.');
-    process.exit(1);
+// ---------- odesílání – každá položka zvlášť ----------
+async function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+async function sendOne(line){
+  const payload = isSlackWebhook ? { text: line } : { content: line };
+
+  while (true) {
+    const r = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const bodyText = await r.text().catch(()=> '');
+    log('Discord response:', r.status, bodyText || '(no body)');
+
+    if (r.status === 429) {
+      // Discord vrací retry_after (ms). Když není, počkáme 1000 ms.
+      let retryMs = 1000;
+      try {
+        const obj = JSON.parse(bodyText || '{}');
+        if (obj && typeof obj.retry_after !== 'undefined') {
+          retryMs = Math.max(500, Math.ceil(Number(obj.retry_after)));
+          // pokud je v sekundách, změňte zde na *1000 – některé instance vrací ms, jiné s:
+          if (retryMs < 50) retryMs = retryMs * 1000;
+        }
+      } catch (_) {}
+      log(`Rate limited. Waiting ${retryMs} ms…`);
+      await sleep(retryMs);
+      continue; // zkusi znovu
+    }
+
+    if (!r.ok) {
+      console.error('Chyba při odesílání na Discord:', bodyText || r.status);
+      process.exit(1);
+    }
+    break;
   }
-  console.log('Hotovo – zpráva odeslána.');
-})
-.catch(e => {
-  console.error('Fetch chyba:', e);
+}
+
+async function main(){
+  console.log('Preview (jednotlivé zprávy):\n' + dayLines.join('\n'));
+  for (const line of dayLines) {
+    await sendOne(line);
+    await sleep(800); // malé zpoždění mezi zprávami
+  }
+  console.log('Hotovo – všechny dny odeslány jako samostatné zprávy.');
+}
+
+main().catch(e => {
+  console.error('Nečekaná chyba:', e);
   process.exit(1);
 });
